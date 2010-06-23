@@ -1,10 +1,10 @@
 #ifndef ORO_IO_COMPONENT_HPP
 #define ORO_IO_COMPONENT_HPP
 
-#include <rtt/dev/AnalogInput.hpp>
-#include <rtt/dev/DigitalInput.hpp>
-#include <rtt/dev/AnalogOutput.hpp>
-#include <rtt/dev/DigitalOutput.hpp>
+#include <rtt/extras/dev/AnalogInput.hpp>
+#include <rtt/extras/dev/DigitalInput.hpp>
+#include <rtt/extras/dev/AnalogOutput.hpp>
+#include <rtt/extras/dev/DigitalOutput.hpp>
 
 #include <map>
 #include <utility>
@@ -14,7 +14,7 @@
 #include <boost/tuple/tuple.hpp>
 #include <rtt/Logger.hpp>
 #include <rtt/TaskContext.hpp>
-#include <rtt/DataPort.hpp>
+#include <rtt/Port.hpp>
 #include <rtt/Property.hpp>
 #include <rtt/RTT.hpp>
 
@@ -55,7 +55,7 @@ namespace OCL
             :  TaskContext( name ),
                max_inchannels("MaximumInChannels","The maximum number of virtual analog input channels", 32),
                max_outchannels("MaximumOutChannels","The maximum number of virtual analog output channels", 32),
-               inChannelPort( "InputValues", std::vector<double>( max_outchannels.get(), 0.0)  ),
+               inChannelPort( "InputValues"),
                outChannelPort("OutputValues"),
                workvect(32),
                usingInChannels(0),
@@ -63,13 +63,13 @@ namespace OCL
         {
             this->configure();
 
-            this->ports()->addPort( &inChannelPort,
-                                    "A DataPort containing the values read by this Component from hardware." );
-            this->ports()->addPort( &outChannelPort,
-                                    "A DataPort containing the values which this Component will write to hardware." );
+            this->addPort( inChannelPort ).doc("A DataPort containing the values read by this Component from hardware.");
+            this->addPort( outChannelPort ).doc("A DataPort containing the values which this Component will write to hardware.");
 
-            this->properties()->addProperty( &max_outchannels );
-            this->properties()->addProperty( &max_inchannels );
+            inChannelPort.setDataSample(std::vector<double>( max_outchannels.get(), 0.0));
+            
+            this->addProperty( max_outchannels );
+            this->addProperty( max_inchannels );
 
             this->createAPI();
         }
@@ -105,7 +105,7 @@ namespace OCL
                     chan_meas[i] = inchannels[i] ? inchannels[i]->value() : 0 ;
 
                 // writeout.
-                inChannelPort.Set( chan_meas );
+                inChannelPort.write( chan_meas );
             }
 
             /*
@@ -116,7 +116,7 @@ namespace OCL
 
             // gather results.
             if ( usingOutChannels ) {
-                outChannelPort.Get( chan_out );
+                outChannelPort.read( chan_out );
 
                 // writeout.
                 for (unsigned int i=0; i < outchannels.size(); ++i)
@@ -137,7 +137,7 @@ namespace OCL
         bool addAnalogInInterface( const std::string& Portname, const std::string& devicename)
         {
             Logger::In("addAnalogInInterface");
-            AnalogInInterface* input =  AnalogInInterface::nameserver.getObject(devicename);
+            dev::AnalogInInterface* input =  dev::AnalogInInterface::nameserver.getObject(devicename);
             if ( !input ) {
                 log(Error) << "AnalogIn: "<< devicename <<" not found."<<endlog();
                 return false;
@@ -152,11 +152,11 @@ namespace OCL
             }
 
             ai_interface[Portname] =
-                boost::make_tuple(input, new WriteDataPort<std::vector<double> >(Portname, std::vector<double>(input->nbOfChannels())) );
+                boost::make_tuple(input, new OutputPort<std::vector<double> >(Portname));
+            boost::get<1>(ai_interface[Portname])->setDataSample(std::vector<double>(input->nbOfChannels()));
+            
+            this->ports()->addPort( *boost::get<1>(ai_interface[Portname])).doc("Analog Input value.");
 
-            this->ports()->addPort( boost::get<1>(ai_interface[Portname]), "Analog Input value.");
-
-            this->exportPorts();
             return true;
         }
 
@@ -181,7 +181,6 @@ namespace OCL
             }
 
             delete boost::get<1>(ai_interface[Portname]);
-            this->removeObject( Portname );
             ai_interface.erase(Portname);
             return true;
         }
@@ -203,21 +202,20 @@ namespace OCL
             if ( a_in.count(Portname) != 0  || this->isRunning() )
                 return false;
 
-            AnalogInInterface* input =  AnalogInInterface::nameserver.getObject(devicename);
+            dev::AnalogInInterface* input =  dev::AnalogInInterface::nameserver.getObject(devicename);
             if ( !input ) {
                 log(Error) << "AnalogIn: "<< devicename <<" not found."<<endlog();
                 return false;
             }
 
             a_in[Portname] =
-                boost::make_tuple( new AnalogInput( input, channel ),
-                            new WriteDataPort<unsigned int>(Portname+"_raw", 0),
-                            new WriteDataPort<double>(Portname, 0.0) );
+                boost::make_tuple( new dev::AnalogInput( input, channel ),
+                            new OutputPort<unsigned int>(Portname+"_raw", 0),
+                            new OutputPort<double>(Portname, 0.0) );
 
-            this->ports()->addPort( boost::get<1>(a_in[Portname]), "Analog Input raw value.");
-            this->ports()->addPort( boost::get<2>(a_in[Portname]), "Analog Input value.");
+            this->ports()->addPort( *boost::get<1>(a_in[Portname])).doc("Analog Input raw value.");
+            this->ports()->addPort( *boost::get<2>(a_in[Portname])).doc("Analog Input value.");
 
-            this->exportPorts();
             return true;
         }
 
@@ -230,7 +228,7 @@ namespace OCL
                 return false;
 
             using namespace boost;
-            tuple<AnalogInput*, WriteDataPort<unsigned int>*, WriteDataPort<double>* > res = a_in[Portname];
+            tuple<dev::AnalogInput*, OutputPort<unsigned int>*, OutputPort<double>* > res = a_in[Portname];
             this->ports()->removePort( Portname );
             this->ports()->removePort( Portname );
             a_in.erase(Portname);
@@ -239,7 +237,6 @@ namespace OCL
             delete get<1>(res);
             delete get<2>(res);
 
-            this->removeObject(Portname);
             return true;
         }
 
@@ -258,14 +255,14 @@ namespace OCL
             if ( inchannels[virt_channel] != 0 || this->isRunning() )
                 return false;
 
-            AnalogInInterface* input =  AnalogInInterface::nameserver.getObject(devicename);
+            dev::AnalogInInterface* input =  dev::AnalogInInterface::nameserver.getObject(devicename);
             if ( !input ) {
                 log(Error) << "AnalogIn: "<< devicename <<" not found."<<endlog();
                 return false;
             }
             ++usingInChannels;
 
-            inchannels[virt_channel] = new AnalogInput( input, channel ) ;
+            inchannels[virt_channel] = new dev::AnalogInput( input, channel ) ;
 
             return true;
         }
@@ -301,13 +298,13 @@ namespace OCL
             if ( d_in.count(name) != 0 || this->isRunning() )
                 return false;
 
-            DigitalInInterface* input =  DigitalInInterface::nameserver.getObject(devicename);
+            dev::DigitalInInterface* input =  dev::DigitalInInterface::nameserver.getObject(devicename);
             if ( !input ) {
                 log(Error) << "DigitalIn: "<< devicename <<" not found."<<endlog();
                 return false;
             }
 
-            d_in[name] = new DigitalInput( input, channel, invert );
+            d_in[name] = new dev::DigitalInput( input, channel, invert );
 
             return true;
         }
@@ -320,7 +317,7 @@ namespace OCL
             if ( d_in.count(name) != 1 || this->isRunning() )
                 return false;
 
-            DigitalInput* res = d_in[name];
+            dev::DigitalInput* res = d_in[name];
 
             delete res;
 
@@ -340,7 +337,7 @@ namespace OCL
         bool addAnalogOutInterface( const std::string& Portname, const std::string& devicename)
         {
             Logger::In("addAnalogOutInterface");
-            AnalogOutInterface* output =  AnalogOutInterface::nameserver.getObject(devicename);
+            dev::AnalogOutInterface* output =  dev::AnalogOutInterface::nameserver.getObject(devicename);
             if ( !output ) {
                 log(Error) << "AnalogOut: "<< devicename <<" not found."<<endlog();
                 return false;
@@ -355,11 +352,10 @@ namespace OCL
             }
 
             ao_interface[Portname] =
-                std::make_pair(output, new ReadDataPort<std::vector<double> >(Portname) );
+                std::make_pair(output, new InputPort<std::vector<double> >(Portname) );
 
-            this->ports()->addPort( ao_interface[Portname].second, "Analog Output value.");
+            this->ports()->addPort( *ao_interface[Portname].second).doc("Analog Output value.");
 
-            this->exportPorts();
             return true;
         }
 
@@ -384,7 +380,6 @@ namespace OCL
             }
 
             delete ao_interface[Portname].second;
-            this->removeObject( Portname );
             ao_interface.erase(Portname);
             return true;
         }
@@ -403,17 +398,16 @@ namespace OCL
             if ( a_out.count(portname) != 0 || this->isRunning() )
                 return false;
 
-            AnalogOutInterface* output =  AnalogOutInterface::nameserver.getObject(devicename);
+            dev::AnalogOutInterface* output =  dev::AnalogOutInterface::nameserver.getObject(devicename);
             if ( !output ) {
                 log(Error) << "AnalogOut: "<< devicename <<" not found."<<endlog();
                 return false;
             }
 
-            a_out[portname] = std::make_pair( new AnalogOutput( output, channel ), new ReadDataPort<double>(portname) );
+            a_out[portname] = std::make_pair( new dev::AnalogOutput( output, channel ), new InputPort<double>(portname) );
 
-            this->ports()->addPort( a_out[portname].second, "Analog Output value." );
+            this->ports()->addPort( *a_out[portname].second).doc("Analog Output value." );
 
-            this->exportPorts();
             return true;
         }
 
@@ -435,7 +429,6 @@ namespace OCL
             delete a_out[name].second;
 
             a_out.erase(name);
-            this->removeObject(name);
             return true;
         }
 
@@ -456,14 +449,14 @@ namespace OCL
             if ( outchannels[virt_channel] != 0 || this->isRunning() )
                 return false;
 
-            AnalogOutInterface* output =  AnalogOutInterface::nameserver.getObject(devicename);
+            dev::AnalogOutInterface* output =  dev::AnalogOutInterface::nameserver.getObject(devicename);
             if ( !output ) {
                 log(Error) << "AnalogOut: "<< devicename <<" not found."<<endlog();
                 return false;
             }
 
 
-            outchannels[virt_channel] = new AnalogOutput( output, channel );
+            outchannels[virt_channel] = new dev::AnalogOutput( output, channel );
             ++usingOutChannels;
             return true;
         }
@@ -496,7 +489,7 @@ namespace OCL
             if ( this->isRunning() )
                 return false;
 
-            DigitalOutInterface* output =  DigitalOutInterface::nameserver.getObject(devicename);
+            dev::DigitalOutInterface* output =  dev::DigitalOutInterface::nameserver.getObject(devicename);
             if ( !output ) {
                 log(Error) << "DigitalOut: "<< devicename <<" not found."<<endlog();
                 return false;
@@ -508,7 +501,7 @@ namespace OCL
                 name_number << i;
                 if ( d_out.count(name_number.str()) )
                     delete d_out.find(name_number.str())->second;
-                d_out[name_number.str()] = new DigitalOutput( output, i );
+                d_out[name_number.str()] = new dev::DigitalOutput( output, i );
                 name_number.clear();
             }
 
@@ -553,13 +546,13 @@ namespace OCL
             if ( d_out.count(name) != 0 || this->isRunning() )
                 return false;
 
-            DigitalOutInterface* output =  DigitalOutInterface::nameserver.getObject(devicename);
+            dev::DigitalOutInterface* output =  dev::DigitalOutInterface::nameserver.getObject(devicename);
             if ( !output ) {
                 log(Error) << "DigitalOut: "<< devicename <<" not found."<<endlog();
                 return false;
             }
 
-            d_out[name] = new DigitalOutput( output, channel, invert );
+            d_out[name] = new dev::DigitalOutput( output, channel, invert );
 
             return true;
         }
@@ -692,20 +685,20 @@ namespace OCL
         /**
          * The 'Channels' provide an array of measured analog inputs.
          */
-        std::vector< AnalogInput* > inchannels;
-        std::vector< AnalogOutput* > outchannels;
+        std::vector< dev::AnalogInput* > inchannels;
+        std::vector< dev::AnalogOutput* > outchannels;
 
         std::vector<double> chan_meas;
         std::vector<double> chan_out;
-        WriteDataPort< std::vector<double> > inChannelPort;
-        ReadDataPort< std::vector<double> > outChannelPort;
+        OutputPort< std::vector<double> > inChannelPort;
+        InputPort< std::vector<double> > outChannelPort;
 
         /**
          * Each digital input/output becomes an object with methods in the component interface.
          */
-        typedef std::map<std::string, DigitalInput* > DInMap;
+        typedef std::map<std::string, dev::DigitalInput* > DInMap;
         DInMap d_in;
-        typedef std::map<std::string, DigitalOutput* > DOutMap;
+        typedef std::map<std::string, dev::DigitalOutput* > DOutMap;
         DOutMap d_out;
 
         /**
@@ -713,19 +706,19 @@ namespace OCL
          */
         typedef
         std::map<std::string,
-                 boost::tuple< AnalogInput*,
-                        WriteDataPort<unsigned int>*,
-                        WriteDataPort<double>* > > AInMap;
+                 boost::tuple< dev::AnalogInput*,
+                        OutputPort<unsigned int>*,
+                        OutputPort<double>* > > AInMap;
         AInMap a_in;
-        typedef std::map<std::string, std::pair<AnalogOutput*, ReadDataPort<double>* > > AOutMap;
+        typedef std::map<std::string, std::pair<dev::AnalogOutput*, InputPort<double>* > > AOutMap;
         AOutMap a_out;
 
         typedef
         std::map<std::string,
-                 boost::tuple< AnalogInInterface*,
-                               WriteDataPort<std::vector<double> >* > > AInInterfaceMap;
+                 boost::tuple< dev::AnalogInInterface*,
+                               OutputPort<std::vector<double> >* > > AInInterfaceMap;
         AInInterfaceMap ai_interface;
-        typedef std::map<std::string, std::pair<AnalogOutInterface*, ReadDataPort<std::vector<double> >* > > AOutInterfaceMap;
+        typedef std::map<std::string, std::pair<dev::AnalogOutInterface*, InputPort<std::vector<double> >* > > AOutInterfaceMap;
         AOutInterfaceMap ao_interface;
         std::vector<double> workvect;
 
@@ -738,8 +731,8 @@ namespace OCL
         void write_a_in_to_do( const AInMap::value_type& dd )
         {
             // See boost::tuple for syntax
-            boost::get<1>(dd.second)->Set( boost::get<0>(dd.second)->rawValue() );
-            boost::get<2>(dd.second)->Set( boost::get<0>(dd.second)->value() );
+            boost::get<1>(dd.second)->write( boost::get<0>(dd.second)->rawValue() );
+            boost::get<2>(dd.second)->write( boost::get<0>(dd.second)->value() );
         }
 
         /**
@@ -747,7 +740,9 @@ namespace OCL
          */
         void write_to_aout( const AOutMap::value_type& dd )
         {
-            dd.second.first->value( dd.second.second->Get() );
+            double val;
+            dd.second.second->read(val);
+            dd.second.first->value(val);
         }
 
         /**
@@ -758,18 +753,18 @@ namespace OCL
             // See boost::tuple for syntax
             workvect.resize( boost::get<0>(dd.second)->nbOfChannels() );
             for(unsigned int i=0; i != workvect.size(); ++i) {
-                AnalogInput ain( boost::get<0>(dd.second), i);
+                dev::AnalogInput ain( boost::get<0>(dd.second), i);
                 workvect[i] = ain.value();
             }
-            boost::get<1>(dd.second)->Set( workvect );
+            boost::get<1>(dd.second)->write( workvect );
         }
 
         void write_ao( const AOutInterfaceMap::value_type& dd )
         {
             workvect.resize( dd.second.first->nbOfChannels() );
-            dd.second.second->Get( workvect );
+            dd.second.second->read( workvect );
             for(unsigned int i=0; i != workvect.size(); ++i) {
-                AnalogOutput aout( dd.second.first, i);
+                dev::AnalogOutput aout( dd.second.first, i);
                 aout.value( workvect[i]);
             }
         }

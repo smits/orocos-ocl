@@ -31,7 +31,7 @@
 #define ORO_PARALLELPORT_HPP
 
 #include "TemplateDigitalOut.hpp"
-#include "rtt/dev/DigitalOutInterface.hpp"
+#include "rtt/extras/dev/DigitalOutInterface.hpp"
 
 namespace RTT
 {
@@ -45,7 +45,7 @@ namespace RTT
      * are guaranteed not to clear out each others data.
      */
     class ParallelPort
-        : public DigitalOutInterface
+        : public dev::DigitalOutInterface
     {
         static TemplateDigitalOut Base;
 

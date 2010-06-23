@@ -29,7 +29,7 @@
 #ifndef TEMPLATEDIGITALIN_HPP
 #define TEMPLATEDIGITALIN_HPP
 
-#include "rtt/dev/DigitalInInterface.hpp"
+#include "rtt/extras/dev/DigitalInInterface.hpp"
 
 namespace RTT
 {
